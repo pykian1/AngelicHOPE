@@ -1,0 +1,33 @@
+[project]
+name = "hope-implementation"
+version = "0.1.0"
+description = "Attempt of implementation of HOPE (arXiv:2607.21366) for CNN compression, targeting Apple silicon"
+requires-python = ">=3.12,<3.13"
+
+dependencies = [
+    "torch>=2.4",
+    "torchvision>=0.19",
+    "numpy>=1.26",
+    "scipy>=1.13",
+    "matplotlib>=3.8",
+    "torch-pruning>=1.6.0",
+]
+
+[project.optional-dependencies]
+
+deploy = ["coremltools>=9.0"]
+dev = ["pytest>=8.0", "pytest-cov", "ruff>=0.6"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-v --tb=short"
+
+[tool.ruff]
+line-length = 100

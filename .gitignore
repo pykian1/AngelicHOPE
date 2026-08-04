@@ -1,0 +1,18 @@
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# data and artifacts -- never commit these
+data/
+checkpoints/*.pt
+checkpoints/*.pth
+*.mlpackage/
+*.mlmodel
+figures/*.png
+
+.DS_Store
+.vscode/
+.idea/
