@@ -5,8 +5,9 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 
-# data and artifacts -- never commit these
+
 data/
+private/
 checkpoints/*.pt
 checkpoints/*.pth
 *.mlpackage/
