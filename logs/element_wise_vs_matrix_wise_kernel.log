@@ -1,0 +1,53 @@
+
+gamma=positive, beta=zero
+ [PASS] elementwise == matrix(off-diagonal) max rel err 1.69e-16
+ [PASS] diagonal == K(i, i)
+ [PASS] symmetric
+ [PASS] Cauchy-Schwarz |K(i,j)| <= sqrt(KiiKjj) max slack 0.00e+00
+ [PASS] no NaN / Inf
+
+gamma=positive, beta=positive
+ [PASS] elementwise == matrix(off-diagonal) max rel err 1.60e-16
+ [PASS] diagonal == K(i, i)
+ [PASS] symmetric
+ [PASS] Cauchy-Schwarz |K(i,j)| <= sqrt(KiiKjj) max slack 0.00e+00
+ [PASS] no NaN / Inf
+
+gamma=positive, beta=mixed
+ [PASS] elementwise == matrix(off-diagonal) max rel err 2.10e-16
+ [PASS] diagonal == K(i, i)
+ [PASS] symmetric
+ [PASS] Cauchy-Schwarz |K(i,j)| <= sqrt(KiiKjj) max slack 0.00e+00
+ [PASS] no NaN / Inf
+
+gamma=mixed, beta=zero
+ [PASS] elementwise == matrix(off-diagonal) max rel err 9.69e-17
+ [PASS] diagonal == K(i, i)
+ [PASS] symmetric
+ [PASS] Cauchy-Schwarz |K(i,j)| <= sqrt(KiiKjj) max slack 0.00e+00
+ [PASS] no NaN / Inf
+
+gamma=mixed, beta=positive
+ [PASS] elementwise == matrix(off-diagonal) max rel err 2.35e-16
+ [PASS] diagonal == K(i, i)
+ [PASS] symmetric
+ [PASS] Cauchy-Schwarz |K(i,j)| <= sqrt(KiiKjj) max slack 0.00e+00
+ [PASS] no NaN / Inf
+
+gamma=mixed, beta=mixed
+ [PASS] elementwise == matrix(off-diagonal) max rel err 8.03e-17
+ [PASS] diagonal == K(i, i)
+ [PASS] symmetric
+ [PASS] Cauchy-Schwarz |K(i,j)| <= sqrt(KiiKjj) max slack 0.00e+00
+ [PASS] no NaN / Inf
+
+sign regression
+ [PASS] K invariant to global gamma sign flip max diff 0.00e+00
+ [PASS] K invariant to per-neuron gamma sign flip max diff 0.00e+00
+
+analytic anchors (beta = 0)
+ [PASS] rho=1 recovers sqrt(Kii Kjj) rel err 1.10e-06 (clamp floor ~1.1e-6)
+ [PASS] rho=0 gives E[relu(yi)]E[relu(yj)] got 0.144831 vs 0.144831
+ [PASS] rho=-1 gives 0 got 1.57e-10
+
+ALL PASS

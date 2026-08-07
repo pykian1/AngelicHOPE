@@ -5,9 +5,12 @@ import torch.nn as nn
 
 _INV_SQRT_2PI = 1.0 / math.sqrt(2.0 * math.pi)
 
+#section 5
+
 
 def relu_self_kernel(gamma: torch.Tensor, beta: torch.Tensor) -> torch.Tensor: 
     #Clamping |gamma| keeps the gamma -> 0 limit finite
+    
    
     eps = 1e-12
     scale = torch.abs(gamma).clamp_min(eps)
