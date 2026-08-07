@@ -28,7 +28,7 @@ def fold_bn(conv: nn.modules.conv._ConvNd, bn: nn.modules.batchnorm._BatchNorm) 
     _scale = gamma/std
 
     
-    view_shape = [conv.shape[0]] + [1]*(conv_w.dim() - 1 )
+    view_shape = [conv_w.shape[0]] + [1]*(conv_w.dim() - 1 )
 
     scale_reshape = _scale.view(*view_shape)
 
