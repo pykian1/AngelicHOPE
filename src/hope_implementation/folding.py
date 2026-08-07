@@ -54,6 +54,7 @@ class LayerPack:
     w_out:torch.Tensor
     gamma:torch.Tensor
     beta:torch.Tensor
+    dp: torch.Tensor
 
 def build_layer_packs(model: nn.Module) -> list[LayerPack]:
     seq = [m for m in model.modules() if isinstance(m,(nn.Conv2d, nn.BatchNorm1d, nn.Linear,nn.BatchNorm2d ))]
@@ -74,6 +75,11 @@ def build_layer_packs(model: nn.Module) -> list[LayerPack]:
         else:
             w_out = nxt.weight.detach().t() #(N, out_features)
 
+        w_eff = w_fold.reshape(N,-1)
+        d_in = w_eff.shape[1]
+        d_out = w_out.shape[1]
+        dp = torch.full((N,),float(d_in+d_out+4))
+
         packs.append(LayerPack(
             layer=a,bn=bn,
             next_layer=nxt, 
@@ -81,6 +87,7 @@ def build_layer_packs(model: nn.Module) -> list[LayerPack]:
             b_eff=b_fold,
             w_out=w_out,
             gamma= bn.weight.detach(),
-            beta=bn.bias.detach()
+            beta=bn.bias.detach(),
+            dp=dp
         ))
     return packs
