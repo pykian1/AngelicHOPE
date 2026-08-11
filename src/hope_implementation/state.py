@@ -61,7 +61,7 @@ class LayerPack:
     beta: torch.Tensor # [N]
     mu: torch.Tensor # [N] running mean
     var: torch.Tensor # [N] running var
-    w_out: torch.Tesnor # [N, n_next, k_out] neuron layer, next layers output channel, next layers receptive field
+    w_out: torch.Tensor # [N, n_next, k_out] neuron layer, next layers output channel, next layers receptive field
 
     #derived from paper section 3
     w_eff: torch.Tensor = field(init=False) # in our use case: 
@@ -85,7 +85,7 @@ class LayerPack:
         #unused for pruning/merging used for ploting E_active / e0 per layer
         self.e0 = float(
             (
-                self.w_out.resahpe(self.n0, -1).norm(dim=1) * 
+                self.w_out.reshape(self.n0, -1).norm(dim=1) * 
                 torch.sqrt(relu_self_kernel(self.gamma, self.beta).clamp_min(0.0))
             ).sum()
         )
@@ -201,14 +201,14 @@ def _read_out(nxt: nn.Module, n:int) -> tuple[torch.Tensor, int]: #read outoging
     if isinstance(nxt, nn.Conv2d):
         c2, _, kh, kw = w.shape
         return w.permute(1, 0, 2, 3).reshape(n, c2, kh*kw).clone(), kh*kw
-    if isintance(nxt, nn.Linear):
+    if isinstance(nxt, nn.Linear):
         return w.t().reshape(n, -1, 1).clone(), 1
 
 
 def _write_out(nxt: nn.Module, w_out: torch.Tensor) -> torch.Tensor: #write outgoing weights
     """ inverse of _read_out"""
-    w = w_out.shape[0]
-    if isintance(nxt, nn.Conv2d):
+    n = w_out.shape[0]
+    if isinstance(nxt, nn.Conv2d):
         c2 = w_out.shape[1]
         kh, kw = nxt.weight.shape[2:]
         return w_out.reshape(n, c2, kh, kw).permute(1, 0, 2, 3).contiguous()
@@ -230,7 +230,7 @@ def build_state(model: nn.Module) -> CompressionState:
     packs: list[LayerPack] = []
     for t in range(len(named) - 2):
         (name, a), (_, bn), (_, nxt) = named[t], named[t+1], named[t+2]
-        if not isinstance(a, (nn.Conv2d, nn.Linear()):
+        if not isinstance(a, (nn.Conv2d, nn.Linear)):
             continue
         if not isinstance(bn, (nn.BatchNorm1d, nn.BatchNorm2d)):
             continue
@@ -267,7 +267,7 @@ def build_state(model: nn.Module) -> CompressionState:
                 p.next=q
                 packs[q].prev = p.idx
 
-        return CompressionState(model=model, packs=packs, states=[LayerState.build(p) for p in packs], by_layer=by_layer, n0_total =sum(p.n0 for p in packs))
+    return CompressionState(model=model, packs=packs, states=[LayerState.build(p) for p in packs], by_layer=by_layer, n0_total =sum(p.n0 for p in packs))
 
 
 def _sync_upstream(cs: CompressionState, li: int, channel: int) -> None:
