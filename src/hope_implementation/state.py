@@ -113,7 +113,7 @@ class LayerPack:
 @dataclass
 class LayerState:
     alive: torch.Tensor #[N]
-    out_norm: torch.Tensor #[N]
+    out_norm: torch.Tensor = field(init=False) #[N]
     k_self: torch.Tensor = field(init=False) #[N]
     cap: torch.Tensor = field(init=False) #[N]
     e_rem: float = field(init=False, default=0.0)
@@ -123,7 +123,7 @@ class LayerState:
     @classmethod
 
     def build(cls,pack:LayerPack) -> "LayerState":
-        st = cls(torch.ones(pack.n,dtype= torch.bool), None,None,None,0.0,pack.n)
+        st = cls(torch.ones(pack.n,dtype= torch.bool), None)
         st.refresh(pack)
         return st
 
@@ -321,9 +321,9 @@ def build_pair_cache(cs: CompressionState, li: int) -> PairCache:
      b[i,j] = || sum_k K(u_c, w~_in_k) w_out_k || / rad(K(u_c, u_c))
      batch rank 2 singular value decomp over all airs
 
-     """
+    """
 
-     raise NotImplementedError
+    raise NotImplementedError
 
 def refresh_pair_row(cs: CompressionState, li: int, i: int) -> None:
     """
@@ -449,10 +449,10 @@ def write_back(cs: CompressionState, check: bool = True) -> None:
         if check and p.next is not None:
             down = cs.packs[p.next]
             assert torch.allclose(
-                w_from_out.reshape(down.n, -1), down.w_raw, atol=1e-5),
-                f"upstream sync broken between {p.name} & {down.name}"
+                w_from_out.reshape(down.n, -1), down.w_raw, atol=1e-5,
+            ), f"upstream sync broken between {p.name} & {down.name}"
 
-            )
+            
         p.layer.weight.copy_(p.w_raw.reshape(p.layer.weight.shape))
         p.bn.weight.copy_(p.gamma)
         p.bn.bias.copy_(p.beta)
