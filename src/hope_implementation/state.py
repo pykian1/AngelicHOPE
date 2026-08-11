@@ -112,7 +112,33 @@ class LayerPack:
 
 @dataclass
 class LayerState:
-    pass
+    alive: torch.Tensor #[N]
+    out_norm: torch.Tensor #[N]
+    k_self: torch.Tensor = field(init=False) #[N]
+    cap: torch.Tensor = field(init=False) #[N]
+    e_rem: float = field(init=False, default=0.0)
+    n_active: int = field(init=False, default=0)
+
+
+    @classmethod
+
+    def build(cls,pack:LayerPack) -> "LayerState":
+        st = cls(torch.ones(pack.n,dtype= torch.bool), None,None,None,0.0,pack.n)
+        st.refresh(pack)
+        return st
+
+    def refresh(self,pack:LayerPack) -> None:
+        self.k_self= relu_self_kernel(pack.gamma,pack.beta)
+        self.out_norm = pack.w_out.reshape(pack.n,-1).norm(dim=1)
+        cap = self.out_norm * torch.sqrt(self.k_self.clamp_min(0.0))
+        cap[~self.alive] = 0.0
+        self.cap = cap
+        self.e_rem = float(cap[self.alive].sum())
+        self.n_active = int(self.alive.sum())
+
+    def kept(self) -> torch.Tensor:
+        #surviving channel indices
+        return torch.nonzero(self.alive,as_tuple=False).squeeze(1)
 
 
 @dataclass 
@@ -320,9 +346,16 @@ def best_prune(cs: CompressionState, li: int) -> Optional[Action]:
     dp static, N_Active and E_rem are live, 
     
     """
+    p,s = cs.packs[li], cs.states[li]
+    idx = s.kept()
+    if idx.numel() == 0:
+        return None
+    cap = s.cap[idx]
+    j = s.n_active*cap/(s.e_rem - cap).clamp_min(EPS)
+    dr = j/p.dp[idx]
+    k = int(torch.argmin(dr))
+    return Action("prune", li, int(idx[k]), j_cost=float(j[k]), dp=float(p.dp[idx[k]]))
 
-
-    pass
 
 
 def best_merge(cs: CompressionState, li: int) -> Optional[Action]:
@@ -344,8 +377,11 @@ def best_merge(cs: CompressionState, li: int) -> Optional[Action]:
 
 def execute_prune(cs: CompressionState, act: Action) -> None:
     """ projects neuron i to null op"""
+    if not bool(cs.states[act.layer].alive[act.i]):
+        raise ValueError(f"{cs.packs[act.layer].name}[{act.i}] already pruned")
+    _kill(cs, act.layer, act.i)
+    cs.history.append(act)
 
-    pass
 
 
 def execute_merge(cs: CompressionState, act: Action) -> None:
@@ -358,6 +394,37 @@ def execute_merge(cs: CompressionState, act: Action) -> None:
 
 #  ---- progressive encoding loop (greedy loop)
 
+
+
+Generator = Callable[[CompressionState,int], Optional[Action]]
+_EXEC = {"prune":execute_prune, "merge":execute_merge}
+
+def step(cs:CompressionState, generators: tuple[Generator, ...]= (best_prune,), min_width: int=1,) -> Optional[Action]:
+    #scan all actions and execute only the argmin. 
+
+    if best_merge in generators:
+        min_width = max(min_width,2)
+
+    best: Optional[Action] =None
+
+    for li,s in enumerate(cs.states):
+        if s.n_active <= min_width:
+            continue
+        for gen in generators:
+            a=gen(cs,li)
+            if a is not None and (best is None or a.dr<best.dr):
+                best=a
+    if best in None:
+        return None
+    _EXEC[best.kind](cs,best)
+    return best
+
+
+def compress_to_density(cs:CompressionState, target:float, **kw) -> list[Action]: #step makes one decision, this function is deciding how many decisions to make
+    while cs.density()> target:
+        if step(cs,**kw) is None:
+            break
+    return cs.history
 
 
 
