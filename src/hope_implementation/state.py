@@ -274,8 +274,8 @@ def build_state(model: nn.Module) -> CompressionState:
 
 def _sync_upstream(cs: CompressionState, li: int, channel: int) -> None:
     """
-    layer lis raw incoming weights for channel are upstream layers outgoing weights for that channel, pushes 
-    current value up
+    layer lis raw incoming weights are the upstream layers outgoing weights for that channel, 
+    sync upstream pushes  current value up
 
     w_raw[channel] = [d_in] = n_up * k_out_up and reshapes exactly onto up.w_out[:, channel, :] = [n_up, k_out_up]
 
@@ -325,6 +325,7 @@ def _kill(cs: CompressionState, li: int, i: int) -> None:
     p.refold(torch.tensor([i]))
     s.alive[i] = False
     _sync_upstream(cs, li, i)
+    _sync_downstream(cs, li, i)
     s.refresh(p)
 
 
