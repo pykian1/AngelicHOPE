@@ -295,6 +295,22 @@ def _sync_upstream(cs: CompressionState, li: int, channel: int) -> None:
         cs.pairs[p.prev].dirty=True
 
 
+def _sync_downstream(cs: CompressionState, li:int, channel: int) -> None:
+
+    """
+    same as _sync_upstream but instead, we update the raw and effective weights of the downstream layer. since layer lis outgoing weights are downstrean layers incoming weights.
+    """
+    p = cs.packs[li]
+    if p.next is None:
+        return
+    down = cs.packs[p.next]
+    k = p.k_out
+    down.w_raw[:,channel*k:(channel+1)*k] = p.w_out[channel]
+    down.refold() 
+    if RECACHE_ON_NEIGHBOUR_CHANGE and p.next in cs.pairs:
+        cs.pairs[p.next].dirty = True
+
+
 def _kill(cs: CompressionState, li: int, i: int) -> None:
     # zero every parameter of neuron i and drop it from alive mask
 
