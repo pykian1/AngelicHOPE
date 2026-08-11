@@ -200,9 +200,9 @@ def _read_out(nxt: nn.Module, n:int) -> tuple[torch.Tensor, int]: #read outoging
     w = nxt.weight.detach()
     if isinstance(nxt, nn.Conv2d):
         c2, _, kh, kw = w.shape
-        return w.permute(1, 0, 2, 3).reshape(n, c2, kh*kw).clone(), kh*kw
+        return w.permute(1, 0, 2, 3).reshape(n, c2, kh*kw).clone(), kh*kw #[c2, N, kh, kw] → [N, c2, kh*kw]
     if isinstance(nxt, nn.Linear):
-        return w.t().reshape(n, -1, 1).clone(), 1
+        return w.t().reshape(n, -1, 1).clone(), 1 #[N, out] → [N, out, 1]
 
 
 def _write_out(nxt: nn.Module, w_out: torch.Tensor) -> torch.Tensor: #write outgoing weights
