@@ -30,7 +30,7 @@ from .capacity import relu_self_kernel
 EPS=1e-12 # spec in alg1 of HOPE paper
 Kind = Literal["prune", "merge"]
 
-RECACHE_ON_NEIGHBOUR_CHANGE = False
+
 
 @dataclass
 class LayerPack:
@@ -125,7 +125,7 @@ class LayerState:
     @classmethod
 
     def build(cls,pack:LayerPack) -> "LayerState":
-        st = cls(torch.ones(pack.n,dtype= torch.bool))
+        st = cls(torch.ones(pack.n,dtype= torch.bool),device=pack.gamma.device)
         st.refresh(pack)
         return st
 
@@ -205,6 +205,7 @@ def _read_out(nxt: nn.Module, n:int) -> tuple[torch.Tensor, int]: #read outoging
         return w.permute(1, 0, 2, 3).reshape(n, c2, kh*kw).clone(), kh*kw #[c2, N, kh, kw] → [N, c2, kh*kw]
     if isinstance(nxt, nn.Linear):
         return w.t().reshape(n, -1, 1).clone(), 1 #[N, out] → [N, out, 1]
+    raise TypeError(f"unsupported next layer: {type(nxt).__name__}")
 
 
 def _write_out(nxt: nn.Module, w_out: torch.Tensor) -> torch.Tensor: #write outgoing weights
@@ -291,7 +292,7 @@ def _sync_upstream(cs: CompressionState, li: int, channel: int) -> None:
     up.w_out[:, channel, :] = p.w_raw[channel].reshape(up.n, up.k_out)
     cs.states[p.prev].refresh(up)
 
-    if RECACHE_ON_NEIGHBOUR_CHANGE and p.prev in cs.pairs:
+    if p.prev in cs.pairs:
         cs.pairs[p.prev].dirty=True
 
 
@@ -307,7 +308,7 @@ def _sync_downstream(cs: CompressionState, li:int, channel: int) -> None:
     k = p.k_out
     down.w_raw[:,channel*k:(channel+1)*k] = p.w_out[channel]
     down.refold() 
-    if RECACHE_ON_NEIGHBOUR_CHANGE and p.next in cs.pairs:
+    if p.next in cs.pairs:
         cs.pairs[p.next].dirty = True
 
 
@@ -420,9 +421,6 @@ _EXEC = {"prune":execute_prune, "merge":execute_merge}
 
 def step(cs:CompressionState, generators: tuple[Generator, ...]= (best_prune,), min_width: int=1,) -> Optional[Action]:
     #scan all actions and execute only the argmin. 
-
-    if best_merge in generators:
-        min_width = max(min_width,2)
 
     best: Optional[Action] =None
 

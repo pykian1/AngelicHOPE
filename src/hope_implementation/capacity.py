@@ -12,8 +12,9 @@ DTYPE = torch.float64
 
 def relu_self_kernel(gamma: torch.Tensor, beta: torch.Tensor) -> torch.Tensor: 
     #Clamping |gamma| keeps the gamma -> 0 limit finite
-    gamma = gamma.to(DTYPE)
-    beta = beta.to(DTYPE)
+    device = gamma.device
+    gamma = gamma.detach().to("cpu", DTYPE)
+    beta = beta.detach().to("cpu", DTYPE)
     eps = 1e-12
     scale = torch.abs(gamma).clamp_min(eps)
     ratio = beta / scale
@@ -22,8 +23,9 @@ def relu_self_kernel(gamma: torch.Tensor, beta: torch.Tensor) -> torch.Tensor:
     #CDF 
     cdf = torch.special.ndtr(ratio)
     self_kernel = (torch.square(gamma) + torch.square(beta)) * cdf + beta * scale * pdf
-
-    return self_kernel.clamp_min(0.0)
+    out = self_kernel.clamp_min(0.0)
+    out_dtype = torch.float32 if device.type == "mps" else DTYPE
+    return out.to(device=device, dtype=out_dtype)
 
 
 
@@ -33,8 +35,11 @@ def hope_capacity(w_out: torch.Tensor, gamma:torch.Tensor, beta:torch.Tensor) ->
         f"neuron count mismatch: w_out {tuple(w_out.shape)}, "
         f"gamma {tuple(gamma.shape)}, beta {tuple(beta.shape)}"
     )
-    w_norm = w_out.to(DTYPE).norm(dim=1)
-    capacity = w_norm * torch.sqrt(relu_self_kernel(gamma, beta))
+    device = w_out.device
+    w_norm = w_out.detach().to("cpu", DTYPE).norm(dim=1)
+    capacity = w_norm * torch.sqrt(relu_self_kernel(gamma, beta)).to("cpu", DTYPE)
+    out_dtype = torch.float32 if device.type == "mps" else DTYPE
+    capacity = capacity.to(device=device, dtype=out_dtype)
     return capacity, capacity.sum()
 
 
