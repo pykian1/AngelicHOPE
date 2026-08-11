@@ -123,7 +123,7 @@ class LayerState:
     @classmethod
 
     def build(cls,pack:LayerPack) -> "LayerState":
-        st = cls(torch.ones(pack.n,dtype= torch.bool), None)
+        st = cls(torch.ones(pack.n,dtype= torch.bool))
         st.refresh(pack)
         return st
 
