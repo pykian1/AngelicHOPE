@@ -75,6 +75,8 @@ class LayerPack:
     next: Optional[int] = None
 
     def __post_init__(self) -> None:
+        for f in ("w_raw", "gamma", "beta", "mu", "var", "w_out"): # maintain float64 consistency
+            setattr(self, f, getattr(self,f).double())
         self.w_eff = torch.empty_like(self.w_raw)
         self.b_eff = torch.empty_like(self.beta)
         self.refold() 
@@ -249,12 +251,12 @@ def build_state(model: nn.Module) -> CompressionState:
                 n0=n,
                 k_out=k_out,
                 bn_eps=bn.eps,
-                w_raw=a.weight.detach().reshape(n,-1).clone(),
-                gamma=bn.weight.detach().clone(),
-                beta=bn.bias.detach().clone(),
-                mu=bn.running_mean.detach().clone(),
-                var=bn.running_var.detach().clone(),
-                w_out=w_out,
+                w_raw=a.weight.detach().reshape(n,-1).clone().double(),
+                gamma=bn.weight.detach().clone().double(),
+                beta=bn.bias.detach().clone().double(),
+                mu=bn.running_mean.detach().clone().double(),
+                var=bn.running_var.detach().clone().double(),
+                w_out=w_out.double(),
             )
         )
 
