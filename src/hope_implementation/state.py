@@ -260,12 +260,12 @@ def build_state(model: nn.Module) -> CompressionState:
 
         # topology by identity 
 
-        by_layer={id(p.layer): p.idx for p in packs}
-        for p in packs:
-            q = by_layer.get(id(p.next_layer))
-            if q is not None:
-                p.next=q
-                packs[q].prev = p.idx
+    by_layer={id(p.layer): p.idx for p in packs}
+    for p in packs:
+        q = by_layer.get(id(p.next_layer))
+        if q is not None:
+            p.next=q
+            packs[q].prev = p.idx
 
     return CompressionState(model=model, packs=packs, states=[LayerState.build(p) for p in packs], by_layer=by_layer, n0_total =sum(p.n0 for p in packs))
 
@@ -414,7 +414,7 @@ def step(cs:CompressionState, generators: tuple[Generator, ...]= (best_prune,), 
             a=gen(cs,li)
             if a is not None and (best is None or a.dr<best.dr):
                 best=a
-    if best in None:
+    if best is None:
         return None
     _EXEC[best.kind](cs,best)
     return best
