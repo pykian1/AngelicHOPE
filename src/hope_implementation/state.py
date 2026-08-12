@@ -125,11 +125,7 @@ class LayerState:
     @classmethod
 
     def build(cls,pack:LayerPack) -> "LayerState":
-<<<<<<< HEAD
         st = cls(torch.ones(pack.n,dtype= torch.bool, device=pack.gamma.device))
-=======
-        st = cls(torch.ones(pack.n,dtype= torch.bool,device=pack.gamma.device))
->>>>>>> 5ea3ef7 (pruning test results available, density sweep plot against otther pruning methods can be found in the logs folder now)
         st.refresh(pack)
         return st
 
