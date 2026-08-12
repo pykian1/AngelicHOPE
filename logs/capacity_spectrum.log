@@ -1,0 +1,16 @@
+checkpoints: checkpoints/vgg8_baseline.pt
+packs 7 neurons 2944 density 1.0000
+
+layer                  N  free        max     median      min>0  decade
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+features.0           128    43  1.144e+00  1.567e-02  2.266e-05    4.70
+features.4           256    11  2.405e-01  1.129e-01  9.792e-04    2.39
+features.8           512    19  1.992e-01  5.501e-02  1.718e-03    2.06
+features.11          512    71  2.372e-01  2.413e-02  2.475e-03    1.98
+features.15          512    23  1.771e-01  1.769e-02  1.285e-03    2.14
+features.18          512     4  1.085e-01  8.425e-03  2.170e-04    2.70
+bottleneck.1         512   395  1.273e+00  0.000e+00  6.620e-02    1.28
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+TOTAL               2944   566   -> predicted density after free prune 0.8077
+
+wrote figures/capacity_spectrum_vgg8_baseline.png

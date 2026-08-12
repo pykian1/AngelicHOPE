@@ -2,7 +2,7 @@ import math
 
 import torch
 import torch.nn as nn
-from .folding import LayerPack
+
 
 _INV_SQRT_2PI = 1.0 / math.sqrt(2.0 * math.pi)
 DTYPE = torch.float64

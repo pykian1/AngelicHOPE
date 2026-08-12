@@ -205,7 +205,7 @@ def _read_out(nxt: nn.Module, n:int) -> tuple[torch.Tensor, int]: #read outoging
         return w.permute(1, 0, 2, 3).reshape(n, c2, kh*kw).clone(), kh*kw #[c2, N, kh, kw] → [N, c2, kh*kw]
     if isinstance(nxt, nn.Linear):
         return w.t().reshape(n, -1, 1).clone(), 1 #[N, out] → [N, out, 1]
-    raise TypeError(f"unsupported next layer: {type(nxt).__name__}")
+    raise TypeError(f"unsupported downstream module {type(nxt).__name__}")
 
 
 def _write_out(nxt: nn.Module, w_out: torch.Tensor) -> torch.Tensor: #write outgoing weights
@@ -215,8 +215,10 @@ def _write_out(nxt: nn.Module, w_out: torch.Tensor) -> torch.Tensor: #write outg
         c2 = w_out.shape[1]
         kh, kw = nxt.weight.shape[2:]
         return w_out.reshape(n, c2, kh, kw).permute(1, 0, 2, 3).contiguous()
-
-    return w_out.reshape(n, -1).t().contiguous()
+    if isinstance(nxt, nn.Linear):
+        return w_out.reshape(n, -1).t().contiguous()
+    raise TypeError(f"unsupported downstream module {type(nxt).__name__}")
+    
 
 
 def build_state(model: nn.Module) -> CompressionState:
@@ -374,7 +376,7 @@ def best_prune(cs: CompressionState, li: int) -> Optional[Action]:
     j = s.n_active*cap/(s.e_rem - cap).clamp_min(EPS)
     dr = j/p.dp[idx]
     k = int(torch.argmin(dr))
-    return Action("prune", li, int(idx[k]), j_cost=float(j[k]), dp=float(p.dp[idx[k]]))
+    return Action("prune", li, int(idx[k]), j_cost=j[k].to(torch.float64).item(), dp=p.dp[idx[k]].to(torch.float64).item())
 
 
 
