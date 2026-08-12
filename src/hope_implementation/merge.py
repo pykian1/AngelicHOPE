@@ -4,10 +4,7 @@ from typing import Optional
  
 import torch
  
-from .state import (
-    CompressionState, PairCache, Action, EPS,
-    _kill, _sync_upstream, _sync_downstream,
-)
+from .state import CompressionState, PairCache, Action, EPS, _kill, _sync_upstream, _sync_downstream
 from .capacity import relu_self_kernel
 from .kernel import bracket, warp
  
@@ -30,7 +27,7 @@ def _pair_direction(aii,aij,ajj,oii,oij,ojj):
 
     tiny = 1e-30
     tr = aii +ajj
-    det = (aii*ajj + aij*aij).clamp_min(0.0)
+    det = (aii*ajj - aij*aij).clamp_min(0.0)
 
     #closed-form 2x2 sqrtm: S = (Gin + sqrt(det) I) / sqrt(tr + 2 sqrt(det))
     sdet = torch.sqrt(det)
@@ -41,7 +38,7 @@ def _pair_direction(aii,aij,ajj,oii,oij,ojj):
 
     #B = S Gout S (symmetric 2x2)
 
-    t11 = s11 * oij + s12 * oij
+    t11 = s11 * oii + s12 * oij
     t12 = s11 * oij + s12 * ojj
     t21 = s12 * oii + s22 * oij
     t22 = s12 * oij + s22 * ojj
@@ -93,7 +90,7 @@ def _alignment(c1, c2 , eii, eij, ejj, oii, oij,ojj, gam_i, gam_j, beta_i, beta_
     tiny = 1e-30
 
     uw_sq = (c1 * c1 * eii + 2.0 * c1 * c2 * eij + c2 * c2 * ejj).clamp_min(tiny)
-    uw_norm = torch.norm(uw_sq)
+    uw_norm = uw_sq.sqrt()
 
     #first moment, beta
     beta_u = c1 * beta_i + c2 * beta_j
@@ -145,7 +142,7 @@ def _pair_core(aii, aij, ajj, oii, oij, ojj, eii, eij, ejj,
     flip = neg[0] > pos[0]
 
     # b = <rho*, fi + fj>: the inner product between the optimal parent's unit direction and the sum of the two children
-    b= torch.where(flip, pos[0], neg[0])
+    b= torch.where(flip, neg[0], pos[0])
     if not extras:
         return b, rho_hat
     sgn = torch.where(flip, -torch.ones_like(c1), torch.ones_like(c1))
@@ -173,19 +170,20 @@ def _layer_geometry(pack, rows: Optional[torch.Tensor] = None): # gram entries a
     geff = gaug - left_b[:, None] * b_eff[None, :]
     gout = left_w @ wo.T
 
-    ks = relu_self_kernel(pack.gamma, pack.beta)    # K(k,k)
+    ks = relu_self_kernel(pack.gamma.to(_F64), pack.beta.to(_F64))    # K(k,k)
     sc = pack.gamma.to(_F64).abs() / torch.sqrt(eff_d.clamp_min(1e-30))
     return gaug, geff, gout, aug_d, eff_d, out_d, ks, sc
 
 
 # ------------------ cache build
-def build_pair_cache(cs: CopmressionState, li: int) -> PairCache: #InitializeCaches for one layer for every pair at once and keep only scalars b & rho_hat
+def build_pair_cache(cs: CompressionState, li: int) -> PairCache: #InitializeCaches for one layer for every pair at once and keep only scalars b & rho_hat
     pack =cs.packs[li]
     gaug, geff,gout, aug_d, eff_d, out_d,ks, sc = _layer_geometry(pack)
     gam, bet = pack.gamma.to(_F64), pack.beta.to(_F64)
     n = pack.n
-    r=torch.arange(n)[:, None]    # [N,1] x [1,N] broadcast = ever (i,j) at once
-    c = torch.arange(n)[None, :]
+    dev = pack.gamma.device
+    r=torch.arange(n, device=dev)[:, None]    # [N,1] x [1,N] broadcast = ever (i,j) at once
+    c = torch.arange(n, device=dev)[None, :]
     b, rho_hat =_pair_core(
         aug_d[r], gaug, aug_d[c], out_d[r], gout, out_d[c],
         eff_d[r], geff, eff_d[c], gam[r], gam[c], bet[r], bet[c], ks[r], ks[c], sc[r], sc[c])
@@ -200,7 +198,7 @@ def refresh_pair_row(cs: CompressionState, li: int, i: int) -> None: # after a m
         return
     pack=cs.packs[li]
     alive = cs.states[li].kept()
-    gaug,geff, gout, aug_d,eff_d, out_d, ks, sc = _layer_geometry(pack, rows=torch.as_tensor([i]))                     
+    gaug,geff, gout, aug_d,eff_d, out_d, ks, sc = _layer_geometry(pack, rows=torch.as_tensor([i], device=pack.gamma.device))                     
     gam, bet = pack.gamma.to(_F64),pack.beta.to(_F64)
     b_row, r_row= _pair_core(                               
         aug_d[i], gaug[0, alive], aug_d[alive],
@@ -221,7 +219,7 @@ def _get_pair_cache(cs: CompressionState, li: int) -> PairCache:
 
 # ------ generation
 
-def best_merge(cs: CompressionState, li: int) -> PairCache: #cheapest merge in layer li
+def best_merge(cs: CompressionState, li: int) -> Optional[Action]: #cheapest merge in layer li
     p, s = cs.packs[li], cs.states[li]
     if s.n_active < 2:
         return None
@@ -243,7 +241,8 @@ def best_merge(cs: CompressionState, li: int) -> PairCache: #cheapest merge in l
 
     dp = p.dp.to(_F64)[jj] #one neurons static footprint
     dr= j_cost / dp.clamp_min(EPS)     #DR = J / dP (Alg 1 l. 14)
-    dr=torch.where(torch.triu(torch.ones(m, m, dtype=torch.bool), diagonal=1), dr, torch.full_like(dr, float("inf")))  # undirected pairs, i < j 
+    _mask= torch.triu(torch.ones(m,m, dtype=torch.bool, device=dr.device), diagonal=1) & (b>0.0)
+    dr=torch.where(_mask, dr, torch.full_like(dr, float("inf"))) # undirected pairs, i < j 
     k = int(torch.argmin(dr))
     if not torch.isfinite(dr.reshape(-1)[k]):
         return None
@@ -253,7 +252,7 @@ def best_merge(cs: CompressionState, li: int) -> PairCache: #cheapest merge in l
 
 
 
-def _physical_recover(C1, C2, gam_i, gam_j, bet_i, bet_j, b_i, b_j, w_eff_i, w_eff_j, rho_ij, bn_eps):
+def _physical_recovery(C1, C2, gam_i, gam_j, bet_i, bet_j, b_i, b_j, w_eff_i, w_eff_j, rho_ij, bn_eps):
     #phyiscal parameters for the parent w~*_in under anchoring by sigma^2_p 
 
     beta_p = C1 * bet_i + C2 * bet_j    # Eq 18
@@ -277,7 +276,7 @@ def execute_merge(cs: CompressionState, act: Action) -> None: #collapse pair (i,
     if not (bool(s.alive[i]) and bool(s.alive[j])):
         raise ValueError(f"{p.name}: merge targets ({i},{j}) not both alive")
     
-    gaug, geff, gout, aug_d, eff_d, out_d, ks, sc = _layer_geometry(p, rows=torch.as_tensor([i]))
+    gaug, geff, gout, aug_d, eff_d, out_d, ks, sc = _layer_geometry(p, rows=torch.as_tensor([i], device=p.gamma.device))
     gam, bet = p.gamma.to(_F64), p.beta.to(_F64)
     b_val, rho_ij, c1, c2, k_ui, k_uj, ku = _pair_core( # eq 13 & 14
         aug_d[i], gaug[0, j], aug_d[j],
@@ -317,12 +316,12 @@ def execute_merge(cs: CompressionState, act: Action) -> None: #collapse pair (i,
     p.mu[i] = mu_p.to(dt)
     p.var[i] = var_p.to(dt)
     p.w_out[i] = w_out_p.to(dt)
-    p.refold(torch.tensor([i]))
+    p.refold(torch.tensor([i], device=p.gamma.device))
     _sync_upstream(cs, li, i)   # parents raw weight is the upstream outgoing weight slice
     _sync_downstream(cs, li, i)  # parents outgoign weight is the downstream raw weight slice
     _kill(cs, li, j) # delete child j(zeroes, syncs, refreshes capacities)
     refresh_pair_row(cs, li, i) #repair parents cache row
-    cs.history.appent(act)
+    cs.history.append(act)
 
 
 
