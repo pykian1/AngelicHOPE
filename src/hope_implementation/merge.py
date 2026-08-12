@@ -153,3 +153,180 @@ def _pair_core(aii, aij, ajj, oii, oij, ojj, eii, eij, ejj,
             torch.where(flip, neg[1], pos[1]),
             torch.where(flip, neg[2], pos[2]),
             torch.where(flip, neg[3], pos[3]))
+
+            
+
+
+def _layer_geometry(pack, rows: Optional[torch.Tensor] = None): # gram entries and per nueron scalars feeding _pair_core
+    A = pack.augmented().to(_F64)   #rows are w~_k
+    b_eff = pack.b_eff.to(_F64)
+    wo = pack.w_out.reshape(pack.n, -1).to(_F64)
+
+    aug_d = (A * A).sum(dim=1)  #||w~_k||^ 2
+    out_d = (wo * wo).sum(dim=1)    # ||w_out_k||^2
+    eff_d = (aug_d - b_eff * b_eff).clamp_min(0.0)  # ||w_eff_k ||^2
+
+    left_A = A if rows is None else A[rows]
+    left_b = b_eff if rows is None else b_eff[rows]
+    left_w = wo if rows is None else wo[rows]
+    gaug = left_A @ A.T
+    geff = gaug - left_b[:, None] * b_eff[None, :]
+    gout = left_w @ wo.T
+
+    ks = relu_self_kernel(pack.gamma, pack.beta)    # K(k,k)
+    sc = pack.gamma.to(_F64).abs() / torch.sqrt(eff_d.clamp_min(1e-30))
+    return gaug, geff, gout, aug_d, eff_d, out_d, ks, sc
+
+
+# ------------------ cache build
+def build_pair_cache(cs: CopmressionState, li: int) -> PairCache: #InitializeCaches for one layer for every pair at once and keep only scalars b & rho_hat
+    pack =cs.packs[li]
+    gaug, geff,gout, aug_d, eff_d, out_d,ks, sc = _layer_geometry(pack)
+    gam, bet = pack.gamma.to(_F64), pack.beta.to(_F64)
+    n = pack.n
+    r=torch.arange(n)[:, None]    # [N,1] x [1,N] broadcast = ever (i,j) at once
+    c = torch.arange(n)[None, :]
+    b, rho_hat =_pair_core(
+        aug_d[r], gaug, aug_d[c], out_d[r], gout, out_d[c],
+        eff_d[r], geff, eff_d[c], gam[r], gam[c], bet[r], bet[c], ks[r], ks[c], sc[r], sc[c])
+    pc = PairCache(b=b, rho_hat=rho_hat, dirty=False)
+    cs.pairs[li] =pc
+    return pc
+
+def refresh_pair_row(cs: CompressionState, li: int, i: int) -> None: # after a merge deploys a parent into slot i, recompute the cached (b, rho-hat) of (i, k) for every live neighbor k
+    pc=cs.pairs.get(li)
+    if pc is None or pc.dirty:
+        build_pair_cache(cs, li)
+        return
+    pack=cs.packs[li]
+    alive = cs.states[li].kept()
+    gaug,geff, gout, aug_d,eff_d, out_d, ks, sc = _layer_geometry(pack, rows=torch.as_tensor([i]))                     
+    gam, bet = pack.gamma.to(_F64),pack.beta.to(_F64)
+    b_row, r_row= _pair_core(                               
+        aug_d[i], gaug[0, alive], aug_d[alive],
+        out_d[i], gout[0, alive], out_d[alive],
+        eff_d[i], geff[0, alive], eff_d[alive],
+        gam[i], gam[alive], bet[i], bet[alive], ks[i], ks[alive], sc[i], sc[alive])
+    pc.b[i, alive]= b_row    
+    pc.b[alive, i] =b_row 
+    pc.rho_hat[i, alive] = r_row
+    pc.rho_hat[alive, i]= r_row
+
+
+def _get_pair_cache(cs: CompressionState, li: int) -> PairCache:
+    pc = cs.pairs.get(li)
+    if pc is None or pc.dirty:
+        pc = build_pair_cache(cs, li)
+    return pc
+
+# ------ generation
+
+def best_merge(cs: CompressionState, li: int) -> PairCache: #cheapest merge in layer li
+    p, s = cs.packs[li], cs.states[li]
+    if s.n_active < 2:
+        return None
+    pc = _get_pair_cache(cs, li)
+
+    idx=s.kept()
+    m=idx.numel()
+    ii = idx[:, None].expand(m, m)
+    jj= idx[None, :].expand(m, m)
+    cap =s.cap.to(_F64)
+    cap_i, cap_j = cap[ii], cap[jj]
+    a = cap_i * cap_i + cap_j * cap_j # a = ||f_i|| ^ 2 + ||f_j||^2 
+    b = pc.b[ii, jj]    # b = <psi*, f_i+f_j>
+    e_rem = (s.e_rem-cap_i-cap_j).clamp_min(EPS)    # E_rem = max(E_a - ||f_i|| - ||f_j||, eps)
+    s_star = (a + b * e_rem) / (2.0*e_rem + b).clamp_min(EPS)
+
+    j_cost= s.n_active* torch.sqrt((2.0*s_star*s_star-2.0*b*s_star+a).clamp_min(0.0)) / (e_rem + s_star).clamp_min(EPS)
+    # eq 6 w/ D^2 = ||f_i - f_p|||^ 2 + ||f_j - f_p|| ^2 ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+    dp = p.dp.to(_F64)[jj] #one neurons static footprint
+    dr= j_cost / dp.clamp_min(EPS)     #DR = J / dP (Alg 1 l. 14)
+    dr=torch.where(torch.triu(torch.ones(m, m, dtype=torch.bool), diagonal=1), dr, torch.full_like(dr, float("inf")))  # undirected pairs, i < j 
+    k = int(torch.argmin(dr))
+    if not torch.isfinite(dr.reshape(-1)[k]):
+        return None
+    r, c= divmod(k, m)
+
+    return Action("merge", li, int(idx[r]), j=int(idx[c]), j_cost=float(j_cost[r, c]), dp=float(dp[r,c]))
+
+
+
+def _physical_recover(C1, C2, gam_i, gam_j, bet_i, bet_j, b_i, b_j, w_eff_i, w_eff_j, rho_ij, bn_eps):
+    #phyiscal parameters for the parent w~*_in under anchoring by sigma^2_p 
+
+    beta_p = C1 * bet_i + C2 * bet_j    # Eq 18
+    b_p = C1 * b_i + C2 * b_j# Eq 16
+    mu_p = beta_p - b_p     # Eq 17
+    gamma_p = torch.sqrt((C1*C1*gam_i*gam_i+C2*C2*gam_j*gam_j+ 2.0*C1*C2*gam_i.abs()*gam_j.abs()*rho_ij).clamp_min(0.0))  # rho_hat from Eq 4
+    var_p = torch.clamp(gamma_p * gamma_p - bn_eps, min=0.0)  
+    w_raw_p = C1 * w_eff_i + C2 * w_eff_j   # eq 16 & 17 (w_raw = w_eff)
+    if float(gamma_p * gamma_p) < bn_eps: # inactive regime B.5
+        w_raw_p = torch.zeros_like(w_raw_p)
+        mu_p = torch.zeros_like(mu_p)
+        beta_p = b_p
+    return w_raw_p, gamma_p, beta_p, mu_p, var_p
+
+
+def execute_merge(cs: CompressionState, act: Action) -> None: #collapse pair (i, j) into the rank-1 parent deployed into slot i
+    li, i, j = act.layer, act.i, act.j
+    if j is None:
+        raise ValueError("merge action carries no child j")
+    p, s = cs.packs[li], cs.states[li]
+    if not (bool(s.alive[i]) and bool(s.alive[j])):
+        raise ValueError(f"{p.name}: merge targets ({i},{j}) not both alive")
+    
+    gaug, geff, gout, aug_d, eff_d, out_d, ks, sc = _layer_geometry(p, rows=torch.as_tensor([i]))
+    gam, bet = p.gamma.to(_F64), p.beta.to(_F64)
+    b_val, rho_ij, c1, c2, k_ui, k_uj, ku = _pair_core( # eq 13 & 14
+        aug_d[i], gaug[0, j], aug_d[j],
+        out_d[i], gout[0, j], out_d[j],
+        eff_d[i], geff[0, j], eff_d[j],
+        gam[i], gam[j], bet[i], bet[j], ks[i], ks[j], sc[i], sc[j], extras=True)
+
+    cap= s.cap.to(_F64)
+    a=cap[i]**2 + cap[j]**2 # ||f_i|| ^ 2 + ||f_j||^2
+    e_rem = torch.clamp(torch.as_tensor(s.e_rem, dtype=_F64) - cap[i] - cap[j], min=EPS)  # B.4
+    s_star = (a + b_val * e_rem) / (2.0 * e_rem + b_val).clamp_min(EPS)  # Eq 40 (= Eq 12's s*)
+    wo = p.w_out.reshape(p.n, -1).to(_F64)
+
+    v_num = k_ui * wo[i] + k_uj * wo[j]     #eq 13 (v*= normalized sum_k K(u_c, w~_k) w_out_k)
+    v_star = v_num / v_num.norm().clamp_min(1e-30)
+
+    r_f = (torch.sqrt(aug_d[i] + aug_d[j])/( torch.sqrt((out_d[i] + out_d[j]).clamp_min(1e-30))).clamp_min(1e-30)) # ||W_in||_F/||W_out||_F
+    k_self_qrt = ku.clamp_min(1e-30)** 0.25    # Eq 15: K_self^(1/4), K_self = K(u,u)
+    amp_in=torch.sqrt(s_star * r_f) /k_self_qrt
+    amp_out = torch.sqrt(s_star / r_f)/ k_self_qrt
+
+
+    # our (c1, c2) are unit norm coefficients thus folding in eq 15s input amplitude yields exactly eq 16s proj coefficients
+
+    C1, C2=amp_in *c1, amp_in*c2 
+    w_raw_p, gamma_p, beta_p, mu_p, var_p = _physical_recovery(
+        C1, C2, gam[i], gam[j], bet[i], bet[j],
+        p.b_eff[i].to(_F64), p.b_eff[j].to(_F64),
+        p.w_eff[i].to(_F64), p.w_eff[j].to(_F64), rho_ij, p.bn_eps)
+    w_out_p = (amp_out * v_star).reshape(p.w_out.shape[1], p.k_out)
+
+    #deploy into slot i
+    dt = p.w_raw.dtype
+    p.w_raw[i] = w_raw_p.to(dt)
+    p.gamma[i] = gamma_p.to(dt)
+    p.beta[i] = beta_p.to(dt)
+    p.mu[i] = mu_p.to(dt)
+    p.var[i] = var_p.to(dt)
+    p.w_out[i] = w_out_p.to(dt)
+    p.refold(torch.tensor([i]))
+    _sync_upstream(cs, li, i)   # parents raw weight is the upstream outgoing weight slice
+    _sync_downstream(cs, li, i)  # parents outgoign weight is the downstream raw weight slice
+    _kill(cs, li, j) # delete child j(zeroes, syncs, refreshes capacities)
+    refresh_pair_row(cs, li, i) #repair parents cache row
+    cs.history.appent(act)
+
+
+
+
+from . import state as _state
+_state._EXEC["merge"]=execute_merge
+
