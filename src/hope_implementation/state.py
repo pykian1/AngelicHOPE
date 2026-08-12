@@ -125,7 +125,7 @@ class LayerState:
     @classmethod
 
     def build(cls,pack:LayerPack) -> "LayerState":
-        st = cls(torch.ones(pack.n,dtype= torch.bool),device=pack.gamma.device)
+        st = cls(torch.ones(pack.n,dtype= torch.bool, device=pack.gamma.device))
         st.refresh(pack)
         return st
 
