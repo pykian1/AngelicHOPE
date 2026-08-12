@@ -11,7 +11,7 @@ def save_trace(cs: CompressionState, path: str | Path, meta: dict | None = None)
 def load_trace(path: str | Path) -> tuple[dict, list[Action]]:
     blob = json.loads(Path(path).read_text())
     keys = {f.name for f in fields(Action)}
-    return blob["meta]"], [Action(**{k: v for k, v in d.items() if k in keys}) for d in blob["history"]]
+    return blob["meta"], [Action(**{k: v for k, v in d.items() if k in keys}) for d in blob["history"]]
 
 def replay(cs: CompressionState, acts: list[Action], upto: int | None = None) -> CompressionState:
     #cs must be freshly built from the same checkpoint the trace was recorded against

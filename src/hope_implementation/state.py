@@ -25,7 +25,8 @@ from typing import Callable, Literal, Optional
 import torch
 import torch.nn as nn
 
-from .capacity import relu_self_kernel
+from .capacity import relu_self_kernel, _PACK_DEV
+
 
 EPS=1e-12 # spec in alg1 of HOPE paper
 Kind = Literal["prune", "merge"]
@@ -76,13 +77,13 @@ class LayerPack:
 
     def __post_init__(self) -> None:
         for f in ("w_raw", "gamma", "beta", "mu", "var", "w_out"): # maintain float64 consistency
-            setattr(self, f, getattr(self,f).double())
+            setattr(self, f, getattr(self,f).to(_PACK_DEV).to(torch.float64) )
         self.w_eff = torch.empty_like(self.w_raw)
         self.b_eff = torch.empty_like(self.beta)
         self.refold() 
         d_in = self.w_raw.shape[1] # fan in of one neuron
         c = self.w_out.shape[1] * self.k_out #fan out of one neuron
-        self.dp = torch.full((self.n0,), float(d_in + c+ 4))
+        self.dp = torch.full((self.n0,), float(d_in + c+ 4), dtype=self.w_raw.dtype, device= self.w_raw.device)
 
         #unused for pruning/merging used for ploting E_active / e0 per layer
         self.e0 = float(
@@ -97,7 +98,7 @@ class LayerPack:
         # effecitve weight = (gamma / rad(var + eps)) * w_raw | effecitive bias = beta - scale*mu
 
         if rows is None:
-            rows = torch.arange(self.n0)
+            rows = torch.arange(self.n0, device=self.w_raw.device)
         scale = self.gamma[rows] / torch.sqrt(self.var[rows] + self.bn_eps)
         self.w_eff[rows] = scale[:, None] * self.w_raw[rows]
         self.b_eff[rows] = self.beta[rows] - scale*self.mu[rows]
@@ -204,6 +205,8 @@ def _read_out(nxt: nn.Module, n:int) -> tuple[torch.Tensor, int]: #read outoging
         c2, _, kh, kw = w.shape
         return w.permute(1, 0, 2, 3).reshape(n, c2, kh*kw).clone(), kh*kw #[c2, N, kh, kw] → [N, c2, kh*kw]
     if isinstance(nxt, nn.Linear):
+        assert nxt.in_features == n, (f"flatten spatial extent {nxt.in_features // n} != 1; "
+        f"_read_out's k_out=1 assumption is invalid")
         return w.t().reshape(n, -1, 1).clone(), 1 #[N, out] → [N, out, 1]
     raise TypeError(f"unsupported downstream module {type(nxt).__name__}")
 
@@ -254,12 +257,12 @@ def build_state(model: nn.Module) -> CompressionState:
                 n0=n,
                 k_out=k_out,
                 bn_eps=bn.eps,
-                w_raw=a.weight.detach().reshape(n,-1).clone().double(),
-                gamma=bn.weight.detach().clone().double(),
-                beta=bn.bias.detach().clone().double(),
-                mu=bn.running_mean.detach().clone().double(),
-                var=bn.running_var.detach().clone().double(),
-                w_out=w_out.double(),
+                w_raw=a.weight.detach().reshape(n,-1).clone().to(_PACK_DEV).to(torch.float64),
+                gamma=bn.weight.detach().clone().to(_PACK_DEV).to(torch.float64) ,
+                beta=bn.bias.detach().clone().to(_PACK_DEV).to(torch.float64) ,
+                mu=bn.running_mean.detach().clone().to(_PACK_DEV).to(torch.float64) ,
+                var=bn.running_var.detach().clone().to(_PACK_DEV).to(torch.float64) ,
+                w_out=w_out.to(_PACK_DEV).to(torch.float64) ,
             )
         )
 
@@ -325,36 +328,13 @@ def _kill(cs: CompressionState, li: int, i: int) -> None:
     p.mu[i] = 0.0
     p.var[i] = 1.0
     p.w_out[i] = 0.0
-    p.refold(torch.tensor([i]))
+    p.refold(torch.tensor([i], device=p.w_raw.device))
     s.alive[i] = False
     _sync_upstream(cs, li, i)
     _sync_downstream(cs, li, i)
     s.refresh(p)
 
 
-# --- pair cache
-def build_pair_cache(cs: CompressionState, li: int) -> PairCache:
-    """
-    wip ref eq 10
-
-    b[i,j] needs:
-     per pair the principal eigenvector of A restrcited to its rank2 subspace (eq14)
-     +- u (eq11) K = cross_kernel_m
-     b[i,j] = || sum_k K(u_c, w~_in_k) w_out_k || / rad(K(u_c, u_c))
-     batch rank 2 singular value decomp over all airs
-
-    """
-
-    raise NotImplementedError
-
-def refresh_pair_row(cs: CompressionState, li: int, i: int) -> None:
-    """
-    update after merge alg 1 26-29
-
-    recopmute row & col i of b and rho-hat against every live neighbour
-    """
-
-    raise NotImplementedError
 
 
 
@@ -380,21 +360,6 @@ def best_prune(cs: CompressionState, li: int) -> Optional[Action]:
 
 
 
-def best_merge(cs: CompressionState, li: int) -> Optional[Action]:
-    """ Cheapest merge in curr layer
-
-    eq 6 of paper w appen B.4 consts
-
-    a = || f_i||^2 + ||f_j||^2      (live from capacity )
-    b = <psi*, f_i + f_j>   (cached)
-    E_rem = E_a - ||f_i|| - ||f_j||
-
-    s* = (a+ b*E_rem) / (2*E_rem + b)   eq 40
-    J = N rad(2 s*^2 - 2 b s* + a) / (E_rem + s*)
-    """
-    pass
-
-
 
 
 def execute_prune(cs: CompressionState, act: Action) -> None:
@@ -406,20 +371,25 @@ def execute_prune(cs: CompressionState, act: Action) -> None:
 
 
 
-def execute_merge(cs: CompressionState, act: Action) -> None:
-    """collapse pair into rank 1 parent written into slot i"""
-
-    raise NotImplementedError
-
-
-
-
 #  ---- progressive encoding loop (greedy loop)
 
 
 
 Generator = Callable[[CompressionState,int], Optional[Action]]
-_EXEC = {"prune":execute_prune, "merge":execute_merge}
+_EXEC: dict[str, Callable[["CompressionState", "Action"], None]] = {"prune": execute_prune}
+
+def register_exec(kind: Kind, fn) -> None:
+    _EXEC[kind] = fn
+
+def dispatch(cs: "CompressionState", act: "Action") -> None:
+    try:
+        fn = _EXEC[act.kind]
+    except KeyError:
+        raise RuntimeError(
+            f"no executor registered for action kind {act.kind!r} — "
+            "did you forget `import hope_implementation.merge`?"
+        ) from None
+    fn(cs, act)
 
 def step(cs:CompressionState, generators: tuple[Generator, ...]= (best_prune,), min_width: int=1,) -> Optional[Action]:
     #scan all actions and execute only the argmin. 
@@ -435,7 +405,7 @@ def step(cs:CompressionState, generators: tuple[Generator, ...]= (best_prune,), 
                 best=a
     if best is None:
         return None
-    _EXEC[best.kind](cs,best)
+    dispatch(cs, best)
     return best
 
 

@@ -6,6 +6,7 @@ import torch.nn as nn
 
 _INV_SQRT_2PI = 1.0 / math.sqrt(2.0 * math.pi)
 DTYPE = torch.float64
+_PACK_DEV = torch.device("cpu")   # float64 is unsupported on MPS
 
 #section 5
 
@@ -13,8 +14,8 @@ DTYPE = torch.float64
 def relu_self_kernel(gamma: torch.Tensor, beta: torch.Tensor) -> torch.Tensor: 
     #Clamping |gamma| keeps the gamma -> 0 limit finite
     device = gamma.device
-    gamma = gamma.detach().to("cpu", DTYPE)
-    beta = beta.detach().to("cpu", DTYPE)
+    gamma = gamma.detach().to(_PACK_DEV).to(DTYPE)
+    beta = beta.detach().to(_PACK_DEV).to(DTYPE)
     eps = 1e-12
     scale = torch.abs(gamma).clamp_min(eps)
     ratio = beta / scale
@@ -36,8 +37,8 @@ def hope_capacity(w_out: torch.Tensor, gamma:torch.Tensor, beta:torch.Tensor) ->
         f"gamma {tuple(gamma.shape)}, beta {tuple(beta.shape)}"
     )
     device = w_out.device
-    w_norm = w_out.detach().to("cpu", DTYPE).norm(dim=1)
-    capacity = w_norm * torch.sqrt(relu_self_kernel(gamma, beta)).to("cpu", DTYPE)
+    w_norm = w_out.detach().reshape(w_out.shape[0], -1).to(_PACK_DEV).to(DTYPE).norm(dim=1)
+    capacity = w_norm * torch.sqrt(relu_self_kernel(gamma, beta)).to(_PACK_DEV).to(DTYPE)
     out_dtype = torch.float32 if device.type == "mps" else DTYPE
     capacity = capacity.to(device=device, dtype=out_dtype)
     return capacity, capacity.sum()

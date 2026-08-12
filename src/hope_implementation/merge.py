@@ -326,6 +326,6 @@ def execute_merge(cs: CompressionState, act: Action) -> None: #collapse pair (i,
 
 
 
-from . import state as _state
-_state._EXEC["merge"]=execute_merge
+from .state import register_exec
+register_exec("merge", execute_merge)
 

@@ -50,7 +50,6 @@ def cross_kernel_m(w_eff: torch.Tensor, gamma: torch.Tensor, beta: torch.Tensor)
 
     brack = (1/math.pi) * (torch.sqrt(1 - torch.square(corr)) + ((math.pi - torch.arccos(corr))*corr))
     self_kernel = relu_self_kernel(gamma, beta)#  [N]
-    self_kernel[:, None] * self_kernel[None, :]
     sqrt_self = torch.sqrt(self_kernel)
 
     cross_kernel = brack * (sqrt_self[:, None] * sqrt_self[None, :]) # [N, N]
