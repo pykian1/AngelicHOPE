@@ -5,14 +5,14 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 
-
+docs/
 data/
 private/
 checkpoints/*.pt
 checkpoints/*.pth
 *.mlpackage/
 *.mlmodel
-figures/*.png
+private_figures/*.png
 
 .DS_Store
 .vscode/

@@ -4,11 +4,15 @@ A from-scratch PyTorch implementation of **HOPE** — *Hilbert Operator for
 Progressive Encoding* (Mobahi & Bartlett, 2026, arXiv:2607.21366) — for neural
 network compression. 
 
-## Our first results applied to a VGG-8 CNN trained on CIFAR-10.
+## Our first results (85.3% accuracy @ 70% density) applied to a VGG-8 CNN trained on CIFAR-10.
 
-![accuracy_vs_density](image.png)
-> this is our most recent result, only showing HOPE's pruning capabilities (this is not the full greedy loop implementation with merging)  
-* measured against other pruning methods
+![accuracy_vs_density](results/figures/accuracy_vs_density.png)
+
+> HOPE against three sturcutred magnitude baselines on VGG8 trained on CIFAR10,
+> Pruning only, merging is implemented but contributes <2% of selectied actions
+> at our scale, reference logs/accuracy_vs_density_merge.png w/ companion logs/density_sweep_merge.csv
+
+![accuracy_vs_density_with_merge](results/figures/accuracy_vs_density_merge.png)
 
 ## What it does
 
@@ -31,24 +35,24 @@ Two granular operations are supported:
 
 ## Scope
 
-This is a **work in progress** and intentionally covers a subset of the paper:
+This is a **work in progress** and intentionally covers a subset of the paper (PROGRESSIVE ENCODING HAS YET TO BE TESTED!!!!):
 
 - **In scope:** BN folding, functional capacity, the ReLU self- and cross-kernels,
   pruning, and neuron merging on VGG-8 / CIFAR-10.
-- **Out of scope:** block eviction (§8, defined for residual pathways VGG-8 lacks)
+- **Future Scope:** block eviction 
   and DEFT.
 
 Because there is no official reference implementation, every equation was
 implemented directly from the paper. CIFAR-10 is used instead of the paper's
-CIFAR-100 subset due to running on a macbook 
+CIFAR-100 subset 
 
 ## Status & results
 
 - Pruning is implemented and tested; the accuracy-vs-density curve is in
-  `logs/accuracy_vs_density.png`, with a comparison against other pruning methods
-  in `logs/density_sweep.csv`.
-- Equation 39 (the alpha-divergence relation) is validated in
-  `logs/alpha_divergence.png`.
+  `results/figures/accuracy_vs_density.png`, with a comparison against other pruning methods
+  in `results/tables/density_sweep.csv`.
+- Equation 39 (the invariance of distortion rate ordering) is validated in
+  `results/figures/alpha_divergence.png`.
 - Kernel implementations are checked against Monte-Carlo references
   (`tests/test_kernels_mc.py`) and an exact bivariate-normal reference via
   Plackett's identity (`bivariate.py`).
@@ -60,17 +64,26 @@ src/hope_implementation/
   models.py      VGG-8 architecture + device / checkpoint helpers
   folding.py     BatchNorm folding (section 3)
   capacity.py    ReLU self-kernel and neuron capacity (sections 4 and 5)
-  kernel.py      element-wise and matrix cross-kernels (section 5)
+  kernel.py      cross kernel primitives
   bivariate.py   exact bivariate-normal CDF reference (Plackett's identity)
-  state.py       LayerPack / LayerState / CompressionState + greedy loop (sections 6-9)
+  state.py       LayerPack / LayerState / CompressionState + greedy loop (sections 6, 9 10)
+  merge.py       rank 2 -> rank 1 projection; pair geometry,. decoupled     cache, parent generation and physical recovery
   reference.py   Monte-Carlo kernel references
-  baselines.py   L1 / BN-scale comparison pruners
+  baselines.py   L1 (input + joint) / BN-scale comparison pruners
+  trace.py      save / load/ replay a compression run
 
-logs/   result plots and logs
+results/ figures, csvs and run logs
+```
+
+
 
 ```
 
 
+note this project is just an exercise for both collaborators 
+
+
+```
 
 
 

@@ -46,13 +46,11 @@ def elementwise_matrix(w_eff, gamma, beta):
 
 
 def check(name, condition, detail=""):
-    status = "PASS" if condition else "FAIL"
-
-    print(f" [{status}] {name}{(' ' + detail) if detail else ''}")
-    return condition
+    assert condition, f"{name}{(' ' + detail) if detail else ''}"
+    return True
 
 
-def main():
+def test_cross_kernel_elementwise_vs_matrix():
     all_ok = True
 
     for gamma_sign in ("positive", "mixed"):
@@ -115,6 +113,3 @@ def main():
     print("\n" + ("ALL PASS" if all_ok else "FAILURES PRESENT"))
     return 0 if all_ok else 1
 
-
-if __name__ == "__main__":
-    raise SystemExit(main())

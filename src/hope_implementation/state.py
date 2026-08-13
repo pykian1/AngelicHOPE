@@ -83,7 +83,7 @@ class LayerPack:
         self.refold() 
         d_in = self.w_raw.shape[1] # fan in of one neuron
         c = self.w_out.shape[1] * self.k_out #fan out of one neuron
-        self.dp = torch.full((self.n0,), float(d_in + c+ 4), dtype=self.w_raw.dtype, device= self.w_raw.device)
+        self.dp = torch.full((self.n0,), float(d_in + c+ 4), dtype=torch.float64)
 
         #unused for pruning/merging used for ploting E_active / e0 per layer
         self.e0 = float(
@@ -110,7 +110,7 @@ class LayerPack:
 
     @property
     def n(self) -> int:
-        return self.n0 #
+        return self.n0 # tensor width never changes as we mask instead of slicing. For live width view LayerState.n_active
 
 
 @dataclass
@@ -337,7 +337,6 @@ def _kill(cs: CompressionState, li: int, i: int) -> None:
 
 
 
-
 # CANDIDATE GENERATION FOR ACTION PER LAYER
 
 def best_prune(cs: CompressionState, li: int) -> Optional[Action]:
@@ -360,8 +359,6 @@ def best_prune(cs: CompressionState, li: int) -> Optional[Action]:
 
 
 
-
-
 def execute_prune(cs: CompressionState, act: Action) -> None:
     """ projects neuron i to null op"""
     if not bool(cs.states[act.layer].alive[act.i]):
@@ -371,25 +368,14 @@ def execute_prune(cs: CompressionState, act: Action) -> None:
 
 
 
+
+
 #  ---- progressive encoding loop (greedy loop)
 
 
 
 Generator = Callable[[CompressionState,int], Optional[Action]]
-_EXEC: dict[str, Callable[["CompressionState", "Action"], None]] = {"prune": execute_prune}
-
-def register_exec(kind: Kind, fn) -> None:
-    _EXEC[kind] = fn
-
-def dispatch(cs: "CompressionState", act: "Action") -> None:
-    try:
-        fn = _EXEC[act.kind]
-    except KeyError:
-        raise RuntimeError(
-            f"no executor registered for action kind {act.kind!r} — "
-            "did you forget `import hope_implementation.merge`?"
-        ) from None
-    fn(cs, act)
+_EXEC: dict[str, Callable[[CompressionState, Action], None]] = {"prune": execute_prune} # prune is defined in state.py while merge is defined in merge.py
 
 def step(cs:CompressionState, generators: tuple[Generator, ...]= (best_prune,), min_width: int=1,) -> Optional[Action]:
     #scan all actions and execute only the argmin. 

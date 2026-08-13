@@ -153,22 +153,29 @@ def _pair_core(aii, aij, ajj, oii, oij, ojj, eii, eij, ejj,
 
             
 
+def _layer_geometry(pack, rows: Optional[torch.Tensor] = None): # effeective space quantities computed directly
+    """
+    NOTE: our first version went through the augmented gram and substracted b_eff * b_eff which cancels
+    whenever ||w_eff|| ^ 2 << b_eff^2 -- features.0 (d_in = 27, no upstream BN) is the specific case
+    thus our new correction is below 
 
-def _layer_geometry(pack, rows: Optional[torch.Tensor] = None): # gram entries and per nueron scalars feeding _pair_core
-    A = pack.augmented().to(_F64)   #rows are w~_k
+
+    """
+    w_eff = pack.w_eff.to(_F64)
     b_eff = pack.b_eff.to(_F64)
+
     wo = pack.w_out.reshape(pack.n, -1).to(_F64)
+    eff_d = (w_eff * w_eff).sum(dim=1) # >= 0 by construction, doesn't need to be clamped
+    out_d = (wo * wo).sum(dim=1)
+    aug_d = eff_d + b_eff*b_eff
 
-    aug_d = (A * A).sum(dim=1)  #||w~_k||^ 2
-    out_d = (wo * wo).sum(dim=1)    # ||w_out_k||^2
-    eff_d = (aug_d - b_eff * b_eff).clamp_min(0.0)  # ||w_eff_k ||^2
-
-    left_A = A if rows is None else A[rows]
+    left_e = w_eff if rows is None else w_eff[rows]
     left_b = b_eff if rows is None else b_eff[rows]
     left_w = wo if rows is None else wo[rows]
-    gaug = left_A @ A.T
-    geff = gaug - left_b[:, None] * b_eff[None, :]
-    gout = left_w @ wo.T
+    geff = left_e @ w_eff.T # direct, not by subtraction
+    gaug=geff + left_b[:, None] * b_eff[None, :]
+
+    gout = left_w@wo.T
 
     ks = relu_self_kernel(pack.gamma.to(_F64), pack.beta.to(_F64))    # K(k,k)
     sc = pack.gamma.to(_F64).abs() / torch.sqrt(eff_d.clamp_min(1e-30))
@@ -176,6 +183,7 @@ def _layer_geometry(pack, rows: Optional[torch.Tensor] = None): # gram entries a
 
 
 # ------------------ cache build
+"""
 def build_pair_cache(cs: CompressionState, li: int) -> PairCache: #InitializeCaches for one layer for every pair at once and keep only scalars b & rho_hat
     pack =cs.packs[li]
     gaug, geff,gout, aug_d, eff_d, out_d,ks, sc = _layer_geometry(pack)
@@ -187,6 +195,26 @@ def build_pair_cache(cs: CompressionState, li: int) -> PairCache: #InitializeCac
     b, rho_hat =_pair_core(
         aug_d[r], gaug, aug_d[c], out_d[r], gout, out_d[c],
         eff_d[r], geff, eff_d[c], gam[r], gam[c], bet[r], bet[c], ks[r], ks[c], sc[r], sc[c])
+    pc = PairCache(b=b, rho_hat=rho_hat, dirty=False)
+    cs.pairs[li] =pc
+    return pc """ #this is our previous version that is inefficient
+
+def build_pair_cache(cs: CompressionState, li: int, block: int = 128) -> PairCache: #InitializeCaches for one layer, block the rows so we never hold N^2 intermediates
+    pack =cs.packs[li]
+    gaug, geff,gout, aug_d, eff_d, out_d,ks, sc = _layer_geometry(pack)
+    gam, bet = pack.gamma.to(_F64), pack.beta.to(_F64)
+    n = pack.n
+    dev = pack.gamma.device
+    b = torch.empty(n, n, dtype=_F64, device=dev)
+    rho_hat = torch.empty(n, n, dtype=_F64, device=dev)
+    c = torch.arange(n, device=dev)[None, :]
+    for lo in range(0, n, block):   # _pair_direction alone holds ~30 temporaries, so
+        hi = min(lo + block, n)     # doing it [block,N] at a time instead of [N,N] is the whole win
+        r = torch.arange(lo, hi, device=dev)[:, None]
+        b[lo:hi], rho_hat[lo:hi] = _pair_core(
+            aug_d[r], gaug[lo:hi], aug_d[c], out_d[r], gout[lo:hi], out_d[c],
+            eff_d[r], geff[lo:hi], eff_d[c], gam[r], gam[c], bet[r], bet[c],
+            ks[r], ks[c], sc[r], sc[c])
     pc = PairCache(b=b, rho_hat=rho_hat, dirty=False)
     cs.pairs[li] =pc
     return pc
@@ -224,31 +252,45 @@ def best_merge(cs: CompressionState, li: int) -> Optional[Action]: #cheapest mer
     if s.n_active < 2:
         return None
     pc = _get_pair_cache(cs, li)
-
+    
     idx=s.kept()
+    idx = idx[p.w_eff[idx].norm(dim=1) > EPS]
     m=idx.numel()
+    if m < 2:
+        return None
+
+
+    """
     ii = idx[:, None].expand(m, m)
     jj= idx[None, :].expand(m, m)
     cap =s.cap.to(_F64)
     cap_i, cap_j = cap[ii], cap[jj]
+""" # Our previous iteration is unnecessarily memory intensive as 
+    # b.4 only ever wants i < j so we build that index set directly instead of the [m,m] mesh we mask half of away
+
+    ti, tj = torch.triu_indices(m, m, offset = 1, device=idx.device)
+    gi, gj = idx[ti], idx[tj]
+    cap = s.cap.to(_F64)
+    cap_i, cap_j = cap[gi], cap[gj]
+
     a = cap_i * cap_i + cap_j * cap_j # a = ||f_i|| ^ 2 + ||f_j||^2 
-    b = pc.b[ii, jj]    # b = <psi*, f_i+f_j>
+    b = pc.b[gi, gj]    # b = <psi*, f_i+f_j>
     e_rem = (s.e_rem-cap_i-cap_j).clamp_min(EPS)    # E_rem = max(E_a - ||f_i|| - ||f_j||, eps)
     s_star = (a + b * e_rem) / (2.0*e_rem + b).clamp_min(EPS)
 
     j_cost= s.n_active* torch.sqrt((2.0*s_star*s_star-2.0*b*s_star+a).clamp_min(0.0)) / (e_rem + s_star).clamp_min(EPS)
     # eq 6 w/ D^2 = ||f_i - f_p|||^ 2 + ||f_j - f_p|| ^2 ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-    dp = p.dp.to(_F64)[jj] #one neurons static footprint
+    dp = p.dp[gj] #one neurons static footprint, *edit casted dp to float64 in state.py
     dr= j_cost / dp.clamp_min(EPS)     #DR = J / dP (Alg 1 l. 14)
-    _mask= torch.triu(torch.ones(m,m, dtype=torch.bool, device=dr.device), diagonal=1) & (b>0.0)
-    dr=torch.where(_mask, dr, torch.full_like(dr, float("inf"))) # undirected pairs, i < j 
+     # _mask= torch.triu(torch.ones(m,m, dtype=torch.bool, device=dr.device), diagonal=1) & (b>0.0)
+    dr=torch.where(b > 0.0, dr, torch.full_like(dr, float("inf"))) # undirected pairs, i < j 
     k = int(torch.argmin(dr))
-    if not torch.isfinite(dr.reshape(-1)[k]):
+    if not torch.isfinite(dr[k]):
         return None
-    r, c= divmod(k, m)
+    # r, c= divmod(k, m)
 
-    return Action("merge", li, int(idx[r]), j=int(idx[c]), j_cost=float(j_cost[r, c]), dp=float(dp[r,c]))
+    return Action("merge", li, int(gi[k]), j=int(gj[k]), j_cost=float(j_cost[k]), dp=float(dp[k]))
 
 
 

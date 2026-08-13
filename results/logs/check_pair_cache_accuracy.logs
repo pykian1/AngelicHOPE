@@ -1,0 +1,105 @@
+checkpoint checkpoints/vgg8_baseline.pt: 7 packs, 2944 units, density 1.0000
+
+A. build health
+  ok    features.0: b finite over alive block
+  ok    features.0: rho_hat finite over alive block
+  ok    features.0: b symmetric
+  ok    features.0: rho_hat symmetric
+  ok    features.0: |rho_hat| <= 1
+  ok    features.0: 85 positive diagonal entries (must be excluded by triu, not by sign)
+  ok    features.4: b finite over alive block
+  ok    features.4: rho_hat finite over alive block
+  ok    features.4: b symmetric
+  ok    features.4: rho_hat symmetric
+  ok    features.4: |rho_hat| <= 1
+  ok    features.4: 245 positive diagonal entries (must be excluded by triu, not by sign)
+  ok    features.8: b finite over alive block
+  ok    features.8: rho_hat finite over alive block
+  ok    features.8: b symmetric
+  ok    features.8: rho_hat symmetric
+  ok    features.8: |rho_hat| <= 1
+  ok    features.8: 493 positive diagonal entries (must be excluded by triu, not by sign)
+  ok    features.11: b finite over alive block
+  ok    features.11: rho_hat finite over alive block
+  ok    features.11: b symmetric
+  ok    features.11: rho_hat symmetric
+  ok    features.11: |rho_hat| <= 1
+  ok    features.11: 441 positive diagonal entries (must be excluded by triu, not by sign)
+  ok    features.15: b finite over alive block
+  ok    features.15: rho_hat finite over alive block
+  ok    features.15: b symmetric
+  ok    features.15: rho_hat symmetric
+  ok    features.15: |rho_hat| <= 1
+  ok    features.15: 489 positive diagonal entries (must be excluded by triu, not by sign)
+  ok    features.18: b finite over alive block
+  ok    features.18: rho_hat finite over alive block
+  ok    features.18: b symmetric
+  ok    features.18: rho_hat symmetric
+  ok    features.18: |rho_hat| <= 1
+  ok    features.18: 508 positive diagonal entries (must be excluded by triu, not by sign)
+  ok    bottleneck.1: b finite over alive block
+  ok    bottleneck.1: rho_hat finite over alive block
+  ok    bottleneck.1: b symmetric
+  ok    bottleneck.1: rho_hat symmetric
+  ok    bottleneck.1: |rho_hat| <= 1
+  ok    bottleneck.1: 117 positive diagonal entries (must be excluded by triu, not by sign)
+
+B. cache vs just-in-time recompute
+  ok    features.0: max |cache - jit| = 2.220e-16
+  ok    features.4: max |cache - jit| = 1.388e-16
+  ok    features.8: max |cache - jit| = 4.857e-17
+  ok    features.11: max |cache - jit| = 5.551e-17
+  ok    features.15: max |cache - jit| = 5.204e-17
+  ok    features.18: max |cache - jit| = 1.058e-16
+  ok    bottleneck.1: max |cache - jit| = 2.776e-15
+
+C. dirty propagation on prune
+  ok    features.0: prune dirtied [1], expected [1]
+  ok    features.4: prune dirtied [0, 2], expected [0, 2]
+  ok    features.8: prune dirtied [1, 3], expected [1, 3]
+  ok    features.11: prune dirtied [2, 4], expected [2, 4]
+  ok    features.15: prune dirtied [3, 5], expected [3, 5]
+  ok    features.18: prune dirtied [4, 6], expected [4, 6]
+  ok    bottleneck.1: prune dirtied [5], expected [5]
+
+D. refresh_pair_row vs full rebuild (through real merges)
+  ..    free-pruned 572 inactive units before merging
+  ..    features.0         84 /  128 active
+  ..    features.4        245 /  256 active
+  ..    features.8        493 /  512 active
+  ..    features.11       441 /  512 active
+  ..    features.15       488 /  512 active
+  ..    features.18       504 /  512 active
+  ..    bottleneck.1      117 /  512 active
+  ..    features.0[7] (the drain parent) removed by free prune
+  ok    features.0: selected pair (54,82) cached b=0.000322708 vs jit b=0.000322708
+  ok    features.0: after merge #1 max|incremental - rebuild| b=3.331e-16 rho=2.220e-16
+  ok    features.0: selected pair (21,54) cached b=0.000333977 vs jit b=0.000333977
+  ok    features.0: after merge #2 max|incremental - rebuild| b=2.776e-16 rho=3.331e-16
+  ok    features.0: selected pair (29,80) cached b=0.000961067 vs jit b=0.000961067
+  ok    features.0: after merge #3 max|incremental - rebuild| b=1.665e-16 rho=2.220e-16
+  ok    features.0: selected pair (21,29) cached b=0.000394230 vs jit b=0.000394230
+  ok    features.0: after merge #4 max|incremental - rebuild| b=2.220e-16 rho=3.331e-16
+  ok    features.0: selected pair (21,48) cached b=0.000599211 vs jit b=0.000599211
+  ok    features.0: after merge #5 max|incremental - rebuild| b=2.220e-16 rho=2.220e-16
+  ok    features.0: selected pair (21,27) cached b=0.001017746 vs jit b=0.001017746
+  ok    features.0: after merge #6 max|incremental - rebuild| b=1.110e-16 rho=3.886e-16
+  ok    features.0: selected pair (26,108) cached b=0.003334028 vs jit b=0.003334028
+  ok    features.0: after merge #7 max|incremental - rebuild| b=2.220e-16 rho=2.776e-16
+  ok    features.0: selected pair (21,79) cached b=0.001502937 vs jit b=0.001502937
+  ok    features.0: after merge #8 max|incremental - rebuild| b=2.220e-16 rho=2.220e-16
+  ..    completed 8 merges
+
+E. rebuild cost
+  ..    features.0       N= 128 d_in=   27       2.7 ms
+  ..    features.4       N= 256 d_in= 1152      11.3 ms
+  ..    features.8       N= 512 d_in= 2304      23.0 ms
+  ..    features.11      N= 512 d_in= 4608      24.7 ms
+  ..    features.15      N= 512 d_in= 4608      24.9 ms
+  ..    features.18      N= 512 d_in= 4608      21.3 ms
+  ..    bottleneck.1     N= 512 d_in=  512      18.0 ms
+  ..    mean rebuild 18.0 ms; ~2060 actions to density 0.30
+  ..    projected cache-rebuild time alone: 1.2 min
+
+============================================================
+all checks passed; build_pair_cache is safe for the merge sweep

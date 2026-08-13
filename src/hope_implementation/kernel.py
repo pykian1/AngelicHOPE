@@ -63,7 +63,7 @@ def cross_kernel_m(w_eff: torch.Tensor, gamma: torch.Tensor, beta: torch.Tensor)
 
 
 def warp(rho_eff: torch.Tensor, scale_prod: torch.Tensor) -> torch.Tensor:
-    rho = rho_eff.clamp(-1.0 + 1e-6, 1.0 - 1e-6)
+    rho = rho_eff.clamp(-1.0 + 1e-10, 1.0 - 1e-10)
     kappa = (rho / ((1.0-rho)*(1.0+rho))) * scale_prod
     return (2.0*kappa / (1.0 + torch.sqrt(1.0+4.0*kappa*kappa))).clamp(-1.0, 1.0)
 
