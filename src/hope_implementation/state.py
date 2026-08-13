@@ -376,6 +376,20 @@ def execute_prune(cs: CompressionState, act: Action) -> None:
 
 Generator = Callable[[CompressionState,int], Optional[Action]]
 _EXEC: dict[str, Callable[[CompressionState, Action], None]] = {"prune": execute_prune} # prune is defined in state.py while merge is defined in merge.py
+def register_exec(kind: Kind, fn: Callable[[CompressionState, Action], None]) -> None:
+
+    _EXEC[kind] = fn
+
+def dispatch(cs: CompressionState, act: Action) -> None:
+    # run act through whichever module owns its kind
+    fn = _EXEC.get(act.kind)
+    if fn is None:
+        raise KeyError(f"no executor for {act.kind!r}, have {sorted(_EXEC)}")
+    fn(cs, act)
+
+
+
+
 
 def step(cs:CompressionState, generators: tuple[Generator, ...]= (best_prune,), min_width: int=1,) -> Optional[Action]:
     #scan all actions and execute only the argmin. 

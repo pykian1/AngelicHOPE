@@ -233,10 +233,13 @@ def main():
     ap.add_argument("--step", type=float, default=0.02, help="density grid spacing (0.02 -> 36 points to 0.30)")
     ap.add_argument("--merge", action="store_true", help="run hope with the full prune+merge generator set")
     ap.add_argument("--methods", default="HOPE," + ",".join(BASELINES))
-    ap.add_argument("--out", default="logs")
+    ap.add_argument("--out", default="results")
     args = ap.parse_args()
 
-    os.makedirs(args.out, exist_ok=True)
+    tables_dir = os.path.join(args.out, "tables")
+    figures_dir = os.path.join(args.out, "figures")
+    os.makedirs(tables_dir, exist_ok=True)
+    os.makedirs(figures_dir, exist_ok=True)
     device= get_device()
     loader=test_loader()
 
@@ -254,7 +257,7 @@ def main():
         rows += run_method(name, args.checkpoint, targets, loader, device, args.merge, verbose=True)
 
     suffix = ("_merge" if args.merge else "")
-    csv_path=os.path.join(args.out, f"density_sweep{suffix}.csv")
+    csv_path=os.path.join(tables_dir, f"density_sweep{suffix}.csv")
     with open(csv_path, "w", newline="") as f:
         w=csv.DictWriter(f, fieldnames=list(rows[0].keys()))
         w.writeheader()
@@ -262,7 +265,7 @@ def main():
 
     print(f"\nwrote {csv_path}")
 
-    plot(rows, os.path.join(args.out, f"accuracy_vs_density{suffix}.png"), baseline_acc)
+    plot(rows, os.path.join(figures_dir, f"accuracy_vs_density{suffix}.png"), baseline_acc)
 
 
 if __name__ == "__main__":
