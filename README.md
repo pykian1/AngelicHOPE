@@ -12,7 +12,6 @@ network compression.
 > Pruning only, merging is implemented but contributes <2% of selectied actions
 > at our scale, reference logs/accuracy_vs_density_merge.png w/ companion logs/density_sweep_merge.csv
 
-![accuracy_vs_density_with_merge](results/figures/accuracy_vs_density_merge.png)
 
 ## What it does
 
@@ -35,7 +34,7 @@ Two granular operations are supported:
 
 ## Scope
 
-This is a **work in progress** and intentionally covers a subset of the paper (PROGRESSIVE ENCODING HAS YET TO BE TESTED!!!!):
+This is a **work in progress** and intentionally covers a subset of the paper:
 
 - **In scope:** BN folding, functional capacity, the ReLU self- and cross-kernels,
   pruning, and neuron merging on VGG-8 / CIFAR-10.
@@ -51,8 +50,6 @@ CIFAR-100 subset
 - Pruning is implemented and tested; the accuracy-vs-density curve is in
   `results/figures/accuracy_vs_density.png`, with a comparison against other pruning methods
   in `results/tables/density_sweep.csv`.
-- Equation 39 (the invariance of distortion rate ordering) is validated in
-  `results/figures/alpha_divergence.png`.
 - Kernel implementations are checked against Monte-Carlo references
   (`tests/test_kernels_mc.py`) and an exact bivariate-normal reference via
   Plackett's identity (`bivariate.py`).
